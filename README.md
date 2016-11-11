@@ -4,10 +4,7 @@
 
 ## Overview
 
-*IMPORTANT: This module is intended for development and testing, it poses a security risk if used on production servers.*
-*It's completely possible to allow any user to become an admin, or do other nefarious things, if this is installed on a live site.*
-
-This module starts a testing session in a browser,
+This module starts the PHP built-in webserver connected to a test database,
 in order to test a SilverStripe application in a clean state.
 Usually the session is started on a fresh database with only default records loaded.
 Further data can be loaded from YAML fixtures or database dumps.
@@ -28,54 +25,81 @@ available on arbitary URL endpoints. For example,
 we're setting up a test mailer which writes every email
 into a temporary database table for inspection by the CLI-based process.
 
-## Setup
 
-Simply require the module in a SilverStripe webroot (3.0 or newer):
+## Usage via PHP
 
-	composer require --dev silverstripe/behat-extension
+You can launch a new test server with the test server factory. By default, no fixture will be
+loadedand it will use the first available port, starting its search at 8080:
 
-## Usage
+```php
+use SilverStripe\TestSession\TestServerFactory;
 
-You start a test session by manually requesting a certain URL,
-and interact with it through other URL endpoints.
+$factory = new TestServerFactory();
+$server = $factory->launchServer();
+```
 
-Commands:
+`BASE_PATH` must be set as a PHP define. If not, you can pass a path as an argument to
+TestServerFactory's constructor.
 
- * `dev/testsession`: Shows options for starting a test session
- * `dev/testsession/start`: Sets up test state, most commonly a test database will be constructed, 
-    and your browser session will be amended to use this database. See "Parameters" documentation below.
- * `dev/testsession/end`: Removes the test state, and resets to the original database.
- * `dev/testsession/loadfixture?fixture=<path>`: Loads a fixture into an existing test state.
- * `dev/testsession/clear`: Empties the test state.
- * `dev/testsession/browsersessionstate`: Set or unset browser session state (different from test session state).
-   Use query parameters to define states.
+The object that is returned has a few helper methods, including:
 
-While you can use the interface to set the test session state,
-it can be useful to set them programmatically through query parameters
-on "dev/testsession/start":
+ * `$server->getURL()` will give you the URL of your test site, in the form "http://localhost:8080".
+ * `$server->stop()` will shut down the server
 
- * `fixture`: Loads a YAML fixture in the format generally accepted by `SapphireTest` 
-   (see [fixture format docs](http://doc.silverstripe.org/en/developer_guides/testing/fixtures/)). 
-   The path should be relative to the webroot.
- * `createDatabase`: Create a temporary database.
- * `importDatabasePath`: Absolute path to a database dump to load into a newly created temporary database.
- * `importDatabaseFilename`: File name for a database dump to load, relative to `TestSessionController.database_templates_path`
- * `requireDefaultRecords`: Include default records as defined on the model classes (in PHP)
- * `database`: Set an alternative database name in the current 
-    browser session as a cookie. Does not actually create the database, 
-    that's usually handled by `SapphireTest::create_temp_db()`.
-    Note: The database names are limited to a specific naming convention as a security measure:
-    The "ss_tmpdb" prefix and a random sequence of seven digits.
-    This avoids the user gaining access to other production databases available on the same connection.
- * `mailer`: Subclass of `Mailer`, typically used to record emails instead of actually sending them.
- * `datetime`: Sets a simulated date used for all framework operations.
-    Format as "yyyy-MM-dd HH:mm:ss" (Example: "2012-12-31 18:40:59").
- * `globalTestSession`: Activate test session independently of the current browser session,
-    effectively setting the site into test session mode for all users across different browsers. 
-	Only available in "dev" mode. For example, create a global test session in Chrome, then you can share 
-	the session data in Firefox. But if you have started a non-global session in a browser before starting 
-	a global session somewhere else, that non-global session will take priority in that browser.
+You can specify a number of options in a map passed to launch server:
 
-Example usage with parameters:
+```php
+$server = $factory->launchServer([
+    'host' => 'localhost',
+    'preferredPort' => 8080,
+    'fixtureFile' => 'tests/fixtures/something.yml',
+    'bootstrapFile' => 'tests/bootstrap/something.php',
+]);
+```
 
-	dev/testsession/start?database=ss_tmpdb_1234567&fixture=cms/tests/controller/CMSMainTest.yml
+ * **host:** The host to listen on. Defaults to `0.0.0.0` which means listen on every IP
+ * **preferredPort:** The preferred port to start searching for a free port from. Defaults to 8080
+ * **fixtureFile:** A YAML fixture file to load into the test database
+ * **bootstrapFile:** A PHP script to run after the Composer autoloader is available and before
+   `main.php` is called.
+ * **requireDefaultRecords:** A boolean value. Set to true if you want the default records to be
+   inlcuded.
+ * **mailer:** An alternative class or service name to plug in as the SilverStripe mailer. Typically
+   this is used to record emails instead of actually sending them.
+ * **datetime:** Sets a simulated date used for all framework operations. Format as
+   "yyyy-MM-dd HH:mm:ss" (Example: "2012-12-31 18:40:59").
+
+## Usage via CLI
+
+For manual test, runs the `test-serve` CLI script may be preferable:
+
+```sh
+$> vendor/bin/test-serve --fixture-file tests/fixtures/something.yml
+```
+The options `--host`, `--port`, `--fixture-file`, and `--bootstrap-file` do the same as the items
+above.
+
+In addition, there is an option, `--open`, that takes no value. If set, it will open the new server
+in a web browser.
+
+## Clearing the test session
+
+The recommended way to clear the test session is to call `$server->stop()` and start a new server
+with `$factory->launchServer()`. Most of the execution time is spent re-creating the database in anty
+case; starting the server only adds about 20ms of overhead.
+
+On the command line, kill the script and
+re-execute `vendor/bin/test-serve`.
+
+## Can I run test sessions on another webserver?
+
+No, you can't. The previous version of the testsession module allowed this through sacrifices to
+security which mean that accidentally deploying the testsession module would be a major security
+vulnerability. We've opted to remove this.
+
+If you need to run tests against a specific webserver back-end, you could do this by manually
+manipulating the content of the database on a regular deployment, e.g. by loading sspak files into
+the site. If you did this, you wouldn't need the testsession module at all.
+
+However, we recommend that the bulk of your testing work is made agnostic of the webserver that the
+code runs on.
